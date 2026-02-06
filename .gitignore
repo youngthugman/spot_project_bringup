@@ -1,0 +1,25 @@
+# Workspace artifacts (if they ever appear here)
+build/
+install/
+log/
+
+# Editor
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*password*
+*token*
+*secret*
+*.pem
+*.key
