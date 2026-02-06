@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<robot name="spot_lidar_mount">
+    <material name="grey">
+        <color rgba="0.7 0.7 0.7 1" />
+    </material>
+
+  <!-- Existing Spot frame -->
+  <link name="body"/>
+
+  <!-- LiDAR frame -->
+  <link name="lidar_link">
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.1"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+  </link>
+
+  <!-- Fixed mount -->
+  <joint name="body_to_lidar" type="fixed">
+    <parent link="body"/>
+    <child link="lidar_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>
