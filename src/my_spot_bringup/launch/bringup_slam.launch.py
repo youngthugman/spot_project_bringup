@@ -1,10 +1,25 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from ament_index_python.packages import get_package_share_directory
 
 
 
 def generate_launch_description():
     ld = LaunchDescription()
+# Runs spot driver launch py to execute driver nodes
+    spot_driver_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [
+                get_package_share_directory('spot_driver'),
+                '/launch/spot_driver.launch.py'
+            ]
+        ),
+        launch_arguments={
+            'config_file': '/home/max/spot_ws/src/spot_ros2/spot_driver/config/spot_ros_example.yaml'
+        }.items(),
+    )
 
     urg_node = Node(
         package='urg_node',
@@ -50,7 +65,7 @@ def generate_launch_description():
         output='screen',
         arguments=['-d', '/home/max/.rviz2/spotrviz.rviz'],
     )
-
+    ld.add_action(spot_driver_launch)
     ld.add_action(urg_node)
     ld.add_action(robot_state_publisher)
     #ld.add_action(static_tf_body_to_laser)
