@@ -6,6 +6,7 @@ from ament_index_python.packages import get_package_share_directory
 import os
 from launch.actions import SetEnvironmentVariable
 from launch.actions import TimerAction
+from launch.actions import IncludeLaunchDescription
 
 def generate_launch_description():
     ld = LaunchDescription()
@@ -30,7 +31,7 @@ def generate_launch_description():
             'launch_image_publishers': 'False',
             'publish_point_coulds': 'False',
         }.items(),
-)
+    )   
 
     urg_node = Node(
         package='urg_node',
@@ -64,12 +65,29 @@ def generate_launch_description():
         output='screen',
         arguments=['-d', '/home/max/.rviz2/spotrviz.rviz'],
     )
+
+    nav2_launch = IncludeLaunchDescription(
+    PythonLaunchDescriptionSource(
+        os.path.join(
+            get_package_share_directory('nav2_bringup'),
+            'launch',
+            'navigation_launch.py'
+        )
+    ),
+    launch_arguments={
+        'use_sim_time': 'false',
+        'autostart': 'true',
+        'params_file': '/home/max/spot_ws/src/spot_project_bringup/config/nav2/nav2_spot.yaml',
+    }.items()
+    )
+
     ld.add_action(set_extras)
     ld.add_action(spot_driver_launch)
     ld.add_action(urg_node)
     #ld.add_action(static_tf_body_to_laser)
     ld.add_action(TimerAction(period=5.0,actions=[slam_toolbox]))
     ld.add_action(TimerAction(period=6.0,actions=[rviz]))
+    ld.add_action(TimerAction(period=7.0,actions=[nav2_launch]))
     return ld
 
 
