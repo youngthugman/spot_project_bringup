@@ -5,7 +5,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 import os
 from launch.actions import SetEnvironmentVariable
-
+from launch.actions import TimerAction
 
 def generate_launch_description():
     ld = LaunchDescription()
@@ -26,7 +26,9 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            'config_file': '/home/max/spot_ws/src/spot_ros2/spot_driver/config/spot_ros_example.yaml'
+            'config_file': '/home/max/spot_ws/src/spot_ros2/spot_driver/config/spot_ros_example.yaml',
+            'launch_image_publishers': 'False',
+            'publish_point_coulds': 'False',
         }.items(),
 )
 
@@ -66,8 +68,8 @@ def generate_launch_description():
     ld.add_action(spot_driver_launch)
     ld.add_action(urg_node)
     #ld.add_action(static_tf_body_to_laser)
-    ld.add_action(slam_toolbox)
-    ld.add_action(rviz)
+    ld.add_action(TimerAction(period=5.0,actions=[slam_toolbox]))
+    ld.add_action(TimerAction(period=6.0,actions=[rviz]))
     return ld
 
 
