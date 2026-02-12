@@ -54,7 +54,7 @@ planner_server:
     expected_planner_frequency: 2.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      plugin: "nav2_navfn_planner/NavfnPlanner" #can add nav2_smac_planner/SmacPlanner2D
       tolerance: 0.5
       allow_unknown: true
 
@@ -108,7 +108,7 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.6
+        inflation_radius: 0.4
         cost_scaling_factor: 3.0
 
 local_costmap:
