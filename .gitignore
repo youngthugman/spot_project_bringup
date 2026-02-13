@@ -23,3 +23,6 @@ Thumbs.db
 *secret*
 *.pem
 *.key
+*.egg-info/
+dist/
+.pytest_cache/
