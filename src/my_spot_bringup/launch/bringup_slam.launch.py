@@ -29,7 +29,7 @@ def generate_launch_description():
         launch_arguments={
             'config_file': '/home/max/spot_ws/src/spot_ros2/spot_driver/config/spot_ros_example.yaml',
             'launch_image_publishers': 'False',
-            'publish_point_coulds': 'False',
+            'publish_point_clouds': 'False',
         }.items(),
     )   
 
@@ -77,9 +77,18 @@ def generate_launch_description():
     launch_arguments={
         'use_sim_time': 'false',
         'autostart': 'true',
+        'slam': 'True',
         'params_file': '/home/max/spot_ws/src/spot_project_bringup/config/nav2/nav2_spot.yaml',
     }.items()
     )
+
+    explorer_node = Node(
+    package='my_spot_exploration',
+    executable='explorer',
+    name='explorer',
+    output='screen',
+    )
+
 
     ld.add_action(set_extras)
     ld.add_action(spot_driver_launch)
@@ -88,6 +97,8 @@ def generate_launch_description():
     ld.add_action(TimerAction(period=5.0,actions=[slam_toolbox]))
     ld.add_action(TimerAction(period=6.0,actions=[rviz]))
     ld.add_action(TimerAction(period=7.0,actions=[nav2_launch]))
+    ld.add_action(TimerAction(period=8.0, actions=[explorer_node]))
+
     return ld
 
 

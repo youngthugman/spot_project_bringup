@@ -12,86 +12,116 @@ from nav2_msgs.action import NavigateToPose
 import tf2_ros
 from tf2_ros import TransformException
 
-# This creates a ROS2 node named explorer.
-# If you do ros2 node list, you’ll see /explorer.
+
 class ExplorerNode(Node):
     def __init__(self):
         super().__init__('explorer')
         self.get_logger().info("Explorer Node Started")
 
+        # ----------------------------
+        # Tunables
+        # ----------------------------
+        self.global_frame = 'map'
+        self.base_frame = 'body'
+
+        self.timer_period_sec = 3.0
+        self.goal_cooldown_sec = 5.0    # don't send goals too frequently
+        self.min_goal_distance_m = 0.3   # ignore goals closer than this
+
+        # How we decide "frontier": free (0) next to unknown (-1)
+        self.frontier_unknown_value = -1
+        self.frontier_free_value = 0
+
+        # Blacklist resolution (world coords rounding)
+        self.blacklist_round_m = 0.2  # 10 cm buckets
+
+        # ----------------------------
+        # State
+        # ----------------------------
+        self.map_msg = None
+        self.goal_in_progress = False
+        self.blacklist = set()
+
+        self.last_goal_time = self.get_clock().now()
+        self.last_goal_world = None  # (x, y) of the last sent goal
+
+        # ----------------------------
+        # ROS Interfaces
+        # ----------------------------
         self.map_sub = self.create_subscription(
-            OccupancyGrid, '/map', self.map_callback, 10)
+            OccupancyGrid, '/map', self.map_callback, 10
+        )
 
         self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
 
-        # TF: map -> body
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.base_frame = 'body'
-        self.global_frame = 'map'
 
-        self.map_msg = None
-        self.goal_in_progress = False
+        self.timer = self.create_timer(self.timer_period_sec, self.explore)
 
-        # blacklist failed goals in world coords (rounded)
-        self.blacklist = set()
-
-        # run exploration loop
-        self.timer = self.create_timer(2.0, self.explore)
-
+    # ----------------------------
+    # Helpers
+    # ----------------------------
     def map_callback(self, msg: OccupancyGrid):
         self.map_msg = msg
 
+    def _blacklist_key(self, x: float, y: float):
+        # round to 10 cm (or whatever blacklist_round_m is)
+        r = self.blacklist_round_m
+        return (round(x / r) * r, round(y / r) * r)
+
     def get_robot_xy_in_map(self):
+        # "latest available" transform
         try:
             tf = self.tf_buffer.lookup_transform(
                 self.global_frame,
                 self.base_frame,
                 rclpy.time.Time()
             )
-            x = tf.transform.translation.x
-            y = tf.transform.translation.y
-            return x, y
+            return (tf.transform.translation.x, tf.transform.translation.y)
         except TransformException as e:
-            self.get_logger().warning(f"TF lookup failed ({self.global_frame}->{self.base_frame}): {e}")
+            self.get_logger().warning(
+                f"TF lookup failed ({self.global_frame}->{self.base_frame}): {e}"
+            )
             return None
 
     def world_to_grid(self, x, y, info):
-        # grid col = (x - origin_x)/res, row = (y - origin_y)/res
         col = int((x - info.origin.position.x) / info.resolution)
         row = int((y - info.origin.position.y) / info.resolution)
         return row, col
 
-    def grid_to_world(self, row, col, info):
-        x = col * info.resolution + info.origin.position.x
-        y = row * info.resolution + info.origin.position.y
+    def grid_to_world_center(self, row, col, info):
+        # center of cell (helps reduce edge weirdness)
+        x = (col + 0.5) * info.resolution + info.origin.position.x
+        y = (row + 0.5) * info.resolution + info.origin.position.y
         return x, y
 
     def find_frontiers(self, grid: np.ndarray):
-        # frontier = free cell adjacent to unknown
         frontiers = []
         rows, cols = grid.shape
+
+        # Avoid borders
         for r in range(1, rows - 1):
             for c in range(1, cols - 1):
-                if grid[r, c] != 0:
+                if grid[r, c] != self.frontier_free_value:
                     continue
-                nb = grid[r-1:r+2, c-1:c+2]
-                if (nb == -1).any():
+                nb = grid[r - 1:r + 2, c - 1:c + 2]
+                if (nb == self.frontier_unknown_value).any():
                     frontiers.append((r, c))
         return frontiers
 
     def pick_frontier(self, frontiers, robot_rc, info):
         rr, rc = robot_rc
         best = None
-        best_d2 = 1e18
+        best_d2 = float('inf')
 
         for (r, c) in frontiers:
-            # convert to world, use that for blacklist key
-            gx, gy = self.grid_to_world(r, c, info)
-            key = (round(gx, 2), round(gy, 2))
-            if key in self.blacklist:
+            gx, gy = self.grid_to_world_center(r, c, info)
+
+            if self._blacklist_key(gx, gy) in self.blacklist:
                 continue
 
+            # Pick nearest frontier in grid space (cheap + good enough)
             d2 = (r - rr) ** 2 + (c - rc) ** 2
             if d2 < best_d2:
                 best_d2 = d2
@@ -99,6 +129,14 @@ class ExplorerNode(Node):
 
         return best
 
+    def _cooldown_ok(self) -> bool:
+        now = self.get_clock().now()
+        dt = (now - self.last_goal_time).nanoseconds * 1e-9
+        return dt >= self.goal_cooldown_sec
+
+    # ----------------------------
+    # Nav2 goal handling
+    # ----------------------------
     def send_goal(self, x, y):
         if self.goal_in_progress:
             return
@@ -118,6 +156,9 @@ class ExplorerNode(Node):
 
         self.get_logger().info(f"Sending goal: ({x:.2f}, {y:.2f})")
         self.goal_in_progress = True
+        self.last_goal_time = self.get_clock().now()
+        self.last_goal_world = (float(x), float(y))
+
         fut = self.nav_client.send_goal_async(goal)
         fut.add_done_callback(self._goal_response_cb)
 
@@ -125,8 +166,12 @@ class ExplorerNode(Node):
         goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().warning("Goal rejected by Nav2.")
+            # reject -> blacklist it
+            if self.last_goal_world is not None:
+                self.blacklist.add(self._blacklist_key(*self.last_goal_world))
             self.goal_in_progress = False
             return
+
         self.get_logger().info("Goal accepted.")
         res_fut = goal_handle.get_result_async()
         res_fut.add_done_callback(self._result_cb)
@@ -135,21 +180,32 @@ class ExplorerNode(Node):
         try:
             result = future.result()
             status = result.status
-            # status codes: 4=SUCCEEDED typically, but don’t hardcode logic too much
             self.get_logger().info(f"Nav result status: {status}")
+
+            # Nav2 result status:
+            # 4 = SUCCEEDED, 5 = CANCELED, 6 = FAILED  (common)
             if status != 4:
-                # blacklist last goal approx (we don’t have it stored here; simplest is to blacklist next time by failure logic)
-                self.get_logger().warning("Navigation did not succeed; will pick another frontier.")
+                self.get_logger().warning("Navigation did not succeed; blacklisting this goal.")
+                if self.last_goal_world is not None:
+                    self.blacklist.add(self._blacklist_key(*self.last_goal_world))
+
         except Exception as e:
             self.get_logger().error(f"Result callback exception: {e}")
+            if self.last_goal_world is not None:
+                self.blacklist.add(self._blacklist_key(*self.last_goal_world))
         finally:
             self.goal_in_progress = False
 
+    # ----------------------------
+    # Main exploration loop
+    # ----------------------------
     def explore(self):
         if self.map_msg is None:
             self.get_logger().warning("No map yet.")
             return
         if self.goal_in_progress:
+            return
+        if not self._cooldown_ok():
             return
 
         robot_xy = self.get_robot_xy_in_map()
@@ -171,16 +227,33 @@ class ExplorerNode(Node):
             self.get_logger().warning("No selectable frontier (all blacklisted?).")
             return
 
-        gx, gy = self.grid_to_world(chosen[0], chosen[1], info)
-        # blacklist the goal we are about to attempt so we don’t resend instantly if it fails fast
-        self.blacklist.add((round(gx, 2), round(gy, 2)))
+        gx, gy = self.grid_to_world_center(chosen[0], chosen[1], info)
 
+        # Filter: ignore goals too close (prevents micro-goal thrash)
+        dx = gx - robot_xy[0]
+        dy = gy - robot_xy[1]
+        dist = math.hypot(dx, dy)
+
+        if dist < self.min_goal_distance_m:
+            self.get_logger().info(
+                f"Frontier too close ({dist:.2f} m < {self.min_goal_distance_m:.2f} m), skipping."
+            )
+            # Don't permanently blacklist close ones too aggressively; but we can for a while.
+            self.blacklist.add(self._blacklist_key(gx, gy))
+            return
+
+        # IMPORTANT: do NOT blacklist before attempting.
+        # Only blacklist on rejection/failure in callbacks.
         self.send_goal(gx, gy)
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = ExplorerNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
