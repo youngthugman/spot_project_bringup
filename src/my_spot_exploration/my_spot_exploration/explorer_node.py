@@ -1,67 +1,47 @@
 import math
 import numpy as np
-
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
-
 import tf2_ros
 from tf2_ros import TransformException
 
-
-class ExplorerNode(Node):
+class ExplorerNode(Node):  #ExplorerNode Class which inherits ROS2 Node, means it gets methods like Node.
     def __init__(self):
         super().__init__('explorer')
         self.get_logger().info("Explorer Node Started")
 
-        # ----------------------------
-        # Tunables
-        # ----------------------------
+## Hard-coded Parameters 
         self.global_frame = 'map'
         self.base_frame = 'body'
-
-        self.timer_period_sec = 3.0
+        self.timer_period_sec = 3.0     #exploration runs every 3 seconds
         self.goal_cooldown_sec = 5.0    # don't send goals too frequently
-        self.min_goal_distance_m = 0.3   # ignore goals closer than this
-
-        # How we decide "frontier": free (0) next to unknown (-1)
-        self.frontier_unknown_value = -1
+        self.min_goal_distance_m = 0.3  # ignore goals closer than this.
+        self.frontier_unknown_value = -1 
         self.frontier_free_value = 0
+        self.blacklist_round_m = 0.2  # Divides vaue by 0.2 and then multiplies by this value
 
-        # Blacklist resolution (world coords rounding)
-        self.blacklist_round_m = 0.2  # 10 cm buckets
-
-        # ----------------------------
-        # State
-        # ----------------------------
-        self.map_msg = None
-        self.goal_in_progress = False
-        self.blacklist = set()
-
+## Set State Variables
+        self.map_msg = None #Stores the latest /map msg recieved.
+        self.goal_in_progress = False #Likea lock so we don't oversend goals
+        self.blacklist = set() #Creates empty set which has no duplicates. This allows for blacklisting.
         self.last_goal_time = self.get_clock().now()
-        self.last_goal_world = None  # (x, y) of the last sent goal
+        self.last_goal_world = None  # (x, y) of the last sent goal so that it can be used for blacklisting.
 
-        # ----------------------------
-        # ROS Interfaces
-        # ----------------------------
-        self.map_sub = self.create_subscription(
-            OccupancyGrid, '/map', self.map_callback, 10
-        )
-
+## ROS Interfaces
+        self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10) # Whenever a message arrives on /map --> call self.map_callback(msg). Storing this in self.map_sub prevents python garbage collection.
+        #create subsscription is a method from the Node Class (function attatched to a class) Occupancy grid tells us what the message type is. Argument 2 is the topic name we sunbscribe to. And argument 3 is the callback pointer which means, when a message arrives, call this function.
+        # Argument 4 is the buffer size for the map topic. This passes the info not calls the function isntantly -->  self.map_callback if it were to call instantly it would be  self.map_callback(), but cant do that likely with this class method.
         self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
-
-        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_buffer = tf2_ros.Buffer() #Rolling buffer for tf and tf static
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.timer = self.create_timer(self.timer_period_sec, self.explore) #Explore Node Throttle to once evrey 3 seconds.
 
-        self.timer = self.create_timer(self.timer_period_sec, self.explore)
-
-    # ----------------------------
-    # Helpers
-    # ----------------------------
+## Helper Functions
+    # Stores latest subscribed map from /map
     def map_callback(self, msg: OccupancyGrid):
         self.map_msg = msg
 
@@ -105,17 +85,17 @@ class ExplorerNode(Node):
             for c in range(1, cols - 1):
                 if grid[r, c] != self.frontier_free_value:
                     continue
-                nb = grid[r - 1:r + 2, c - 1:c + 2]
+                nb = grid[r - 1:r + 2, c - 1:c + 2]  # so we scan pixel and then scan around pixek and if -1 around pixel that is 0 that pixel becomes a fronteir.
                 if (nb == self.frontier_unknown_value).any():
                     frontiers.append((r, c))
         return frontiers
 
     def pick_frontier(self, frontiers, robot_rc, info):
-        rr, rc = robot_rc
-        best = None
-        best_d2 = float('inf')
+        rr, rc = robot_rc # robots coordinates in pixel coordinates.
+        best = None # No best fronteir to start with.
+        best_d2 = float('inf') #
 
-        for (r, c) in frontiers:
+        for (r, c) in frontiers: #loop through all frontiers
             gx, gy = self.grid_to_world_center(r, c, info)
 
             if self._blacklist_key(gx, gy) in self.blacklist:
@@ -196,9 +176,7 @@ class ExplorerNode(Node):
         finally:
             self.goal_in_progress = False
 
-    # ----------------------------
-    # Main exploration loop
-    # ----------------------------
+# Main exploration loop
     def explore(self):
         if self.map_msg is None:
             self.get_logger().warning("No map yet.")
@@ -211,7 +189,7 @@ class ExplorerNode(Node):
         robot_xy = self.get_robot_xy_in_map()
         if robot_xy is None:
             return
-
+        # Critical part which takes the incoming data --> converts into a grid using the height and width info provided by .info which is part of occupancy grid class object.
         info = self.map_msg.info
         grid = np.array(self.map_msg.data, dtype=np.int16).reshape((info.height, info.width))
 
