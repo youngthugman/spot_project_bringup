@@ -1,4 +1,6 @@
 import math
+from collections import deque
+
 import numpy as np
 
 import rclpy
@@ -27,6 +29,9 @@ class ExplorerNode(Node):
         self.timer_period_sec = 3.0
         self.goal_cooldown_sec = 5.0    # don't send goals too frequently
         self.min_goal_distance_m = 0.3   # ignore goals closer than this
+        self.minimum_frontier_cluster_size_cells = 6
+        self.maximum_frontier_goal_distance_m = 8.0
+        self.frontier_cluster_size_weight = 0.15
 
         # How we decide "frontier": free (0) next to unknown (-1)
         self.frontier_unknown_value = -1
@@ -96,38 +101,157 @@ class ExplorerNode(Node):
         y = (row + 0.5) * info.resolution + info.origin.position.y
         return x, y
 
-    def find_frontiers(self, grid: np.ndarray):
-        frontiers = []
-        rows, cols = grid.shape
+    def _is_inside_grid(self, row_index: int, column_index: int, grid: np.ndarray) -> bool:
+        return 0 <= row_index < grid.shape[0] and 0 <= column_index < grid.shape[1]
 
-        # Avoid borders
-        for r in range(1, rows - 1):
-            for c in range(1, cols - 1):
-                if grid[r, c] != self.frontier_free_value:
+    def _is_traversable_free_cell(self, row_index: int, column_index: int, grid: np.ndarray) -> bool:
+        if not self._is_inside_grid(row_index, column_index, grid):
+            return False
+        return grid[row_index, column_index] == self.frontier_free_value
+
+    def _generate_four_connected_neighbors(self, row_index: int, column_index: int):
+        return [
+            (row_index - 1, column_index),
+            (row_index + 1, column_index),
+            (row_index, column_index - 1),
+            (row_index, column_index + 1),
+        ]
+
+    def _generate_eight_connected_neighbors(self, row_index: int, column_index: int):
+        return [
+            (row_index - 1, column_index - 1), (row_index - 1, column_index), (row_index - 1, column_index + 1),
+            (row_index, column_index - 1),                                         (row_index, column_index + 1),
+            (row_index + 1, column_index - 1), (row_index + 1, column_index), (row_index + 1, column_index + 1),
+        ]
+
+    def _is_frontier_cell(self, row_index: int, column_index: int, grid: np.ndarray) -> bool:
+        if not self._is_traversable_free_cell(row_index, column_index, grid):
+            return False
+
+        for neighbor_row, neighbor_column in self._generate_eight_connected_neighbors(row_index, column_index):
+            if self._is_inside_grid(neighbor_row, neighbor_column, grid):
+                if grid[neighbor_row, neighbor_column] == self.frontier_unknown_value:
+                    return True
+
+        return False
+
+    def _nearest_traversable_cell(self, row_index: int, column_index: int, grid: np.ndarray):
+        if self._is_traversable_free_cell(row_index, column_index, grid):
+            return row_index, column_index
+
+        breadth_first_queue = deque([(row_index, column_index)])
+        visited_cells = {(row_index, column_index)}
+
+        while breadth_first_queue:
+            current_row, current_column = breadth_first_queue.popleft()
+
+            for neighbor_row, neighbor_column in self._generate_four_connected_neighbors(current_row, current_column):
+                if not self._is_inside_grid(neighbor_row, neighbor_column, grid):
                     continue
-                nb = grid[r - 1:r + 2, c - 1:c + 2]
-                if (nb == self.frontier_unknown_value).any():
-                    frontiers.append((r, c))
-        return frontiers
+                if (neighbor_row, neighbor_column) in visited_cells:
+                    continue
 
-    def pick_frontier(self, frontiers, robot_rc, info):
-        rr, rc = robot_rc
-        best = None
-        best_d2 = float('inf')
+                visited_cells.add((neighbor_row, neighbor_column))
 
-        for (r, c) in frontiers:
-            gx, gy = self.grid_to_world_center(r, c, info)
+                if self._is_traversable_free_cell(neighbor_row, neighbor_column, grid):
+                    return neighbor_row, neighbor_column
 
-            if self._blacklist_key(gx, gy) in self.blacklist:
+                breadth_first_queue.append((neighbor_row, neighbor_column))
+
+        return None
+
+    def find_frontier_clusters_wavefront(self, grid: np.ndarray, robot_row_column):
+        robot_row, robot_column = robot_row_column
+        nearest_robot_cell = self._nearest_traversable_cell(robot_row, robot_column, grid)
+        if nearest_robot_cell is None:
+            self.get_logger().warning("Could not find a traversable cell near robot pose.")
+            return []
+
+        map_visited = np.zeros(grid.shape, dtype=bool)
+        frontier_visited = np.zeros(grid.shape, dtype=bool)
+        map_breadth_first_queue = deque([nearest_robot_cell])
+        map_visited[nearest_robot_cell[0], nearest_robot_cell[1]] = True
+
+        frontier_clusters = []
+
+        while map_breadth_first_queue:
+            current_row, current_column = map_breadth_first_queue.popleft()
+
+            if self._is_frontier_cell(current_row, current_column, grid) and not frontier_visited[current_row, current_column]:
+                frontier_cluster_cells = []
+                frontier_breadth_first_queue = deque([(current_row, current_column)])
+                frontier_visited[current_row, current_column] = True
+
+                while frontier_breadth_first_queue:
+                    frontier_row, frontier_column = frontier_breadth_first_queue.popleft()
+                    frontier_cluster_cells.append((frontier_row, frontier_column))
+
+                    for neighbor_row, neighbor_column in self._generate_eight_connected_neighbors(frontier_row, frontier_column):
+                        if not self._is_inside_grid(neighbor_row, neighbor_column, grid):
+                            continue
+                        if frontier_visited[neighbor_row, neighbor_column]:
+                            continue
+                        if not self._is_frontier_cell(neighbor_row, neighbor_column, grid):
+                            continue
+
+                        frontier_visited[neighbor_row, neighbor_column] = True
+                        frontier_breadth_first_queue.append((neighbor_row, neighbor_column))
+
+                if len(frontier_cluster_cells) >= self.minimum_frontier_cluster_size_cells:
+                    frontier_clusters.append(frontier_cluster_cells)
+
+            for neighbor_row, neighbor_column in self._generate_four_connected_neighbors(current_row, current_column):
+                if not self._is_inside_grid(neighbor_row, neighbor_column, grid):
+                    continue
+                if map_visited[neighbor_row, neighbor_column]:
+                    continue
+                if not self._is_traversable_free_cell(neighbor_row, neighbor_column, grid):
+                    continue
+
+                map_visited[neighbor_row, neighbor_column] = True
+                map_breadth_first_queue.append((neighbor_row, neighbor_column))
+
+        return frontier_clusters
+
+    def _pick_representative_cell_from_cluster(self, frontier_cluster_cells, robot_row_column):
+        robot_row, robot_column = robot_row_column
+        best_frontier_cell = None
+        shortest_distance_squared = float('inf')
+
+        for frontier_row, frontier_column in frontier_cluster_cells:
+            distance_squared = (frontier_row - robot_row) ** 2 + (frontier_column - robot_column) ** 2
+            if distance_squared < shortest_distance_squared:
+                shortest_distance_squared = distance_squared
+                best_frontier_cell = (frontier_row, frontier_column)
+
+        return best_frontier_cell
+
+    def pick_frontier_from_clusters(self, frontier_clusters, robot_row_column, info):
+        robot_row, robot_column = robot_row_column
+        best_frontier_choice = None
+        best_frontier_score = float('inf')
+
+        for frontier_cluster_cells in frontier_clusters:
+            representative_cell = self._pick_representative_cell_from_cluster(frontier_cluster_cells, robot_row_column)
+            if representative_cell is None:
                 continue
 
-            # Pick nearest frontier in grid space (cheap + good enough)
-            d2 = (r - rr) ** 2 + (c - rc) ** 2
-            if d2 < best_d2:
-                best_d2 = d2
-                best = (r, c)
+            representative_row, representative_column = representative_cell
+            goal_world_x, goal_world_y = self.grid_to_world_center(representative_row, representative_column, info)
 
-        return best
+            if self._blacklist_key(goal_world_x, goal_world_y) in self.blacklist:
+                continue
+
+            distance_to_robot_cells = math.sqrt(
+                (representative_row - robot_row) ** 2 + (representative_column - robot_column) ** 2
+            )
+            score = distance_to_robot_cells - self.frontier_cluster_size_weight * len(frontier_cluster_cells)
+
+            if score < best_frontier_score:
+                best_frontier_score = score
+                best_frontier_choice = representative_cell
+
+        return best_frontier_choice
 
     def _cooldown_ok(self) -> bool:
         now = self.get_clock().now()
@@ -217,12 +341,12 @@ class ExplorerNode(Node):
 
         robot_rc = self.world_to_grid(robot_xy[0], robot_xy[1], info)
 
-        frontiers = self.find_frontiers(grid)
-        if not frontiers:
-            self.get_logger().info("No frontiers found. Exploration may be complete.")
+        frontier_clusters = self.find_frontier_clusters_wavefront(grid, robot_rc)
+        if not frontier_clusters:
+            self.get_logger().info("No reachable frontier clusters found. Exploration may be complete.")
             return
 
-        chosen = self.pick_frontier(frontiers, robot_rc, info)
+        chosen = self.pick_frontier_from_clusters(frontier_clusters, robot_rc, info)
         if chosen is None:
             self.get_logger().warning("No selectable frontier (all blacklisted?).")
             return
@@ -239,6 +363,13 @@ class ExplorerNode(Node):
                 f"Frontier too close ({dist:.2f} m < {self.min_goal_distance_m:.2f} m), skipping."
             )
             # Don't permanently blacklist close ones too aggressively; but we can for a while.
+            self.blacklist.add(self._blacklist_key(gx, gy))
+            return
+
+        if dist > self.maximum_frontier_goal_distance_m:
+            self.get_logger().info(
+                f"Frontier too far ({dist:.2f} m > {self.maximum_frontier_goal_distance_m:.2f} m), skipping."
+            )
             self.blacklist.add(self._blacklist_key(gx, gy))
             return
 
