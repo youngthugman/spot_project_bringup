@@ -13,7 +13,7 @@ slam_toolbox:
     tf_buffer_duration: 60.0
     minimum_travel_distance: 0.05
     minimum_travel_heading: 0.05
-    throttle_scans: 1.0 #10 was prev
+    throttle_scans: 1 #10 was prev
     minimum_time_interval: 0.0
     min_laser_range: 0.05
     restamp_tf: true 

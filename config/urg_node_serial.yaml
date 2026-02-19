@@ -15,4 +15,4 @@ urg_node:
     publish_intensity: false
     publish_multiecho: false
     cluster: 1
-    skip: 9
+    skip: 0
