@@ -31,7 +31,7 @@ class ExplorerNode(Node):
         self.min_goal_distance_m = 0.3   # ignore goals closer than this
         self.minimum_frontier_cluster_size_cells = 6
         self.maximum_frontier_goal_distance_m = 8.0
-        self.frontier_cluster_size_weight = 0.15
+        self.frontier_cluster_size_weight = 1.5
 
         # How we decide "frontier": free (0) next to unknown (-1)
         self.frontier_unknown_value = -1
@@ -226,8 +226,9 @@ class ExplorerNode(Node):
 
         return best_frontier_cell
 
-    def pick_frontier_from_clusters(self, frontier_clusters, robot_row_column, info):
-        robot_row, robot_column = robot_row_column
+    def pick_frontier_from_clusters(self, frontier_clusters, robot_row_column, info, robot_xy):
+        rx, ry = robot_xy
+
         best_frontier_choice = None
         best_frontier_score = float('inf')
 
@@ -242,10 +243,9 @@ class ExplorerNode(Node):
             if self._blacklist_key(goal_world_x, goal_world_y) in self.blacklist:
                 continue
 
-            distance_to_robot_cells = math.sqrt(
-                (representative_row - robot_row) ** 2 + (representative_column - robot_column) ** 2
-            )
-            score = distance_to_robot_cells - self.frontier_cluster_size_weight * len(frontier_cluster_cells)
+            dist_m = math.hypot(goal_world_x - rx, goal_world_y - ry) 
+            cluster_size = len(frontier_cluster_cells)
+            score = dist_m - self.frontier_cluster_size_weight * math.sqrt(cluster_size)
 
             if score < best_frontier_score:
                 best_frontier_score = score
@@ -346,7 +346,7 @@ class ExplorerNode(Node):
             self.get_logger().info("No reachable frontier clusters found. Exploration may be complete.")
             return
 
-        chosen = self.pick_frontier_from_clusters(frontier_clusters, robot_rc, info)
+        chosen = self.pick_frontier_from_clusters(frontier_clusters, robot_rc, info, robot_xy)
         if chosen is None:
             self.get_logger().warning("No selectable frontier (all blacklisted?).")
             return

@@ -11,7 +11,7 @@ controller_server:
     current_goal_checker: "goal_checker" #goal_checker was original
     current_progress_checker: "progress_checker"
     use_sim_time: false
-    controller_frequency: 8.0 #less aggressive
+    controller_frequency: 10.0 
     controller_plugins: ["FollowPath"]
     goal_checker_plugins: ["goal_checker"]
     progress_checker_plugin: "progress_checker"
@@ -19,7 +19,7 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.10
-      movement_time_allowance: 20.0
+      movement_time_allowance: 8.0
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -40,33 +40,33 @@ controller_server:
       decel_lim_theta: -1.0
 
       min_vel_x: 0.0
-      max_vel_x: 0.25
+      max_vel_x: 0.18
       min_vel_y: 0.0
       max_vel_y: 0.0
       min_vel_theta: 0.0
-      max_vel_theta: 0.6
+      max_vel_theta: 0.5
       min_speed_xy: 0.0
-      max_speed_xy: 0.25
+      max_speed_xy: 0.18
       min_speed_theta: 0.0
 
-      vx_samples: 10
+      vx_samples: 14
       vy_samples: 1
       vtheta_samples: 20
 
-      sim_time: 1.0
+      sim_time: 1.5
       transform_tolerance: 0.5
       critics: ["RotateToGoal","Oscillation","BaseObstacle","GoalAlign","PathAlign","PathDist","GoalDist","PreferForward"]
-      BaseObstacle.scale: 0.08
-      PathAlign.scale: 20.0
-      GoalAlign.scale: 16.0
-      PathDist.scale: 24.0
-      GoalDist.scale: 20.0
+      BaseObstacle.scale: 0.35
+      PathAlign.scale: 8.0
+      GoalAlign.scale: 8.0
+      PathDist.scale: 16.0
+      GoalDist.scale: 12.0
 
-      RotateToGoal.scale: 32.0
+      RotateToGoal.scale: 20.0 #prioritise rotation
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
       Oscillation.scale: 4.0
-      PreferForward.scale: 10.0
+      PreferForward.scale: 1.0
       short_circuit_trajectory_evaluation: true
       stop_on_failure: false
       debug_trajectory_details: true
@@ -77,7 +77,7 @@ planner_server:
     expected_planner_frequency: 3.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner" #can add nav2_smac_planner/SmacPlanner2D
+      plugin: "nav2_smac_planner/SmacPlanner2D" #can add nav2_smac_planner/SmacPlanner2D nav2_navfn_planner/NavfnPlanner
       tolerance: 0.5
       use_astar: false
       allow_unknown: true
