@@ -11,15 +11,15 @@ controller_server:
     current_goal_checker: "goal_checker" #goal_checker was original
     current_progress_checker: "progress_checker"
     use_sim_time: false
-    controller_frequency: 10.0 
+    controller_frequency: 6.0 #reduce controll loop overruns in cluttered areas
     controller_plugins: ["FollowPath"]
     goal_checker_plugins: ["goal_checker"]
     progress_checker_plugin: "progress_checker"
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.10
-      movement_time_allowance: 8.0
+      required_movement_radius: 0.03 #can more move finely
+      movement_time_allowance: 16.0 #more allowance to move before failure declaration.
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -31,9 +31,9 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       motion_model: "DiffDrive" #confirm diff drive is the best motion model for spot.
       iteration_count: 1
-      batch_size: 1500
-      time_steps: 56
-      model_dt: 0.05
+      batch_size: 300 #helps command timeliness in clutter. 
+      time_steps: 20 #helps command timeliness in clutter
+      model_dt: 0.167 #this needs to match controller freq at 10Hz (period 0.10)
       transform_tolerance: 0.5
       prune_distance: 1.7
       temperature: 0.3
@@ -41,7 +41,7 @@ controller_server:
       
       # keep SPOT non-holonomic and match previous speed limits
       vx_max: 0.18
-      vx_min: 0.0
+      vx_min: -0.08 #allows spot to reverse a little if needed
       vy_max: 0.0
       wz_max: 0.5
       ax_max: 0.8
@@ -50,7 +50,7 @@ controller_server:
 
       vx_std: 0.2
       vy_std: 0.0
-      wz_std: 0.4
+      wz_std: 0.25 #whats this?
 
       critics: ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
 
@@ -83,7 +83,7 @@ controller_server:
       PathAngleCritic.cost_power: 1
       PathAngleCritic.threshold_to_consider: 0.5
 
-      PreferForwardCritic.cost_weight: 2.0
+      PreferForwardCritic.cost_weight: 2.2
       PreferForwardCritic.cost_power: 1
 
 planner_server:
@@ -123,7 +123,8 @@ global_costmap:
       publish_frequency: 1.0
       resolution: 0.05
       track_unknown_space: true
-      robot_radius: 0.30
+      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.45, -0.20], [-0.45, 0.20]]"
+      footprint_padding: 0.02
       transform_tolerance: 0.5
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
 
@@ -147,7 +148,7 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.35
+        inflation_radius: 0.15
         cost_scaling_factor: 8.0
 
 local_costmap:
@@ -163,7 +164,7 @@ local_costmap:
       resolution: 0.05
       update_frequency: 8.0
       publish_frequency: 4.0
-      robot_radius: 0.30
+      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.45, -0.20], [-0.45, 0.20]]"
       transform_tolerance: 0.5
       plugins: ["obstacle_layer", "inflation_layer"]
 
@@ -180,8 +181,9 @@ local_costmap:
           raytrace_max_range: 12.0
           raytrace_min_range: 0.05
           max_obstacle_height: 1.0
+          footprint_clearing_enabled: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.35
+        inflation_radius: 0.15
         cost_scaling_factor: 8.0
