@@ -12,7 +12,7 @@ class coris_publisher(Node):
         super().__init__('coris_publisher') #initialise the parent inherited node with a name that will set this node name to coris_publisher in the ros2 system (necessary step)
 
 # Declaring Parameters (config values that can be modified in param file e.g yaml). Same as declaring in innit.
-        simulated_csv = pathlib.Path(get_package_share_directory('')) #add path later
+        simulated_csv = pathlib.Path(get_package_share_directory('coris_publisher')) / 'data' / 'Simulation_data_CPS' #add path later
         self.declare_parameter('csv_path', str(simulated_csv))
         self.declare_parameter('topic_name', '/sim/pixels/image') #maybe modify this to be more clear?
         self.declare_parameter('frame_id', 'pixel_sensor_link') # frame identificaiton for timing.
