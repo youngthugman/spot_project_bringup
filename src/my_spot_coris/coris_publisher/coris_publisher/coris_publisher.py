@@ -25,6 +25,7 @@ class coris_publisher(Node):
 #        Fetching Parameter Values That Are Declared Above
         self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
         self.topic_name = self.get_parameter('topic_name').get_parameter_value().string_value
+        
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
         self.width = self.get_parameter('width').get_parameter_value().integer_value
         self.height = self.get_parameter('height').get_parameter_value().integer_value
@@ -34,9 +35,7 @@ class coris_publisher(Node):
             raise ValueError('width and height must be > 0')
         if publish_period_s <= 0.0:
             raise ValueError('publish_period_s must be > 0')
-        # Loading Pixel Simulation Data using our method (remember method is a function in a class)
         self.pixel_data = self._load_pixel_csv(self.csv_path, self.height, self.width)
-        # Publisher Set Up
         self.publisher = self.create_publisher(Image, self.topic_name, 10) # publishes messsages of type image to topic name x.
         self.timer = self.create_timer(publish_period_s, self.publish_frame) # creates timer that calls publish frame function every publish_period_s
         # Logger Message
@@ -69,7 +68,7 @@ class coris_publisher(Node):
                     )
         # Flattening the 2D list into a 1D list
         return [value for row in rows for value in row]
-    
+   
 # METHOD: Frame Publisher
     def publish_frame(self) -> None:
         msg = Image()
@@ -88,8 +87,8 @@ class coris_publisher(Node):
     def pixel_to_angles(self,row,col):
         vertical_fov = 90
         horizontal_fov = 360
-        n_rows = 8 #can use self.height 
-        n_cols = 32 #can use self.width to be cleaner
+        n_rows = self.height 
+        n_cols = self.width
         # Polar coordinate calculation.
         vertical_angle = (row * (vertical_fov / n_rows)) - (vertical_fov/2) # +- 45deg range from horizontal plane 0.
         horizontal_angle = (col * (horizontal_fov / n_cols)) - (horizontal_fov /2 ) #+_ 180 deg range from horizontal plane 0.
@@ -110,7 +109,7 @@ class coris_publisher(Node):
         # Ray design (m)
         ray_width = 0.01 
         ray_height = 0.01
-        ray_length = 10 * ( 0.1 * cps/ 255) # cap at 10m and scale length as a function of cps. Confirm with physics later. Convert to greyscale 8 bit.
+        ray_length = 10 * (cps/ 255) # cap at 10m and scale length as a function of cps. Confirm with physics later. Convert to greyscale 8 bit.
     
         return x,y,z,ray_width, ray_height, ray_length
     
@@ -119,18 +118,21 @@ class coris_publisher(Node):
         marker_array = MarkerArray()
         for row in range(self.height): 
             for col in range(self.width):
+                if ray_data is None:
+                    continue
                 cps = self.pixel_data[row * self.width + col] # extracts value from flattened.
                 ray_data = self.pixel_to_ray(row,col,cps) #onvery extracted pixel into 3D.
                 x,y,z,ray_width, ray_height, ray_length = ray_data #unpack tuple.
                 # Create Marker for this ray
                 marker = Marker()
+                marker.header.stamp = self.get_clock().now().to_msg()
                 marker.header.frame_id = self.frame_id
                 marker.type = Marker.LINE_STRIP  # Use line strip to represent the ray
                 marker.action = Marker.ADD
                 marker.scale.x = ray_width  # Ray width (fixed value)
                 marker.scale.y = ray_height  # Ray height (fixed value)
                 marker.color.a = 1.0  # Fully opaque
-                marker.color.r = cps / 255.0  # Color based on intesity, make this a little more realistic.
+                marker.color.r = (cps / 255) * 100  # Color based on intesity, make this a little more realistic.
                 # Origin or the Ray
                 start_point = Point()
                 start_point.x = 0  # Sensor is at the origin
@@ -138,9 +140,9 @@ class coris_publisher(Node):
                 start_point.z = 0
                 # End of Ray
                 end_point = Point()
-                end_point.x = x  # Projected 3D point
-                end_point.y = y
-                end_point.z = z
+                end_point.x = x * ray_length
+                end_point.y = y * ray_length
+                end_point.z = z * ray_length
                 marker.points.append(start_point)
                 marker.points.append(end_point)
                 marker_array.markers.append(marker)
