@@ -34,9 +34,10 @@ class coris_publisher(Node):
         if self.width <= 0 or self.height <= 0:
             raise ValueError('width and height must be > 0')
         if publish_period_s <= 0.0:
-            raise ValueError('publish_period_s must be > 0')
+            raise ValueError('publish_period_s must be > 0') #####3 DO I NEED THESES ERROR CATCHES?
         self.pixel_data = self._load_pixel_csv(self.csv_path, self.height, self.width)
         self.publisher = self.create_publisher(Image, self.topic_name, 10) # publishes messsages of type image to topic name x.
+        self.marker_publisher = self.create_publisher(MarkerArray, '/radiation_rays', 10) # confirm funcion of this, 
         self.timer = self.create_timer(publish_period_s, self.publish_frame) # creates timer that calls publish frame function every publish_period_s
         # Logger Message
         self.get_logger().info(
@@ -58,14 +59,9 @@ class coris_publisher(Node):
                     raise ValueError(
                         f'Each CSV row must have {expected_width} columns. Found {len(raw_row)}.'
                     )
-                # No range check for pixel values (allowing larger values like 20000)
                 row_values = [int(cell) for cell in raw_row]
                 # Append the row of pixel values to the rows list
                 rows.append(row_values)
-                if len(rows) != expected_height:
-                    raise ValueError(
-                        f'CSV must contain exactly {expected_height} non-empty rows. Found {len(rows)}.'
-                    )
         # Flattening the 2D list into a 1D list
         return [value for row in rows for value in row]
    
@@ -116,17 +112,21 @@ class coris_publisher(Node):
 # METHOD: Publish ray markers in rviz
     def publish_ray_markers(self):
         marker_array = MarkerArray()
-        for row in range(self.height): 
+        marker_id = 0
+        for row in range(self.height):
             for col in range(self.width):
                 if ray_data is None:
                     continue
                 cps = self.pixel_data[row * self.width + col] # extracts value from flattened.
-                ray_data = self.pixel_to_ray(row,col,cps) #onvery extracted pixel into 3D.
+                ray_data = self.pixel_to_ray(row,col,cps) #convert extracted pixel into 3D.
                 x,y,z,ray_width, ray_height, ray_length = ray_data #unpack tuple.
                 # Create Marker for this ray
                 marker = Marker()
                 marker.header.stamp = self.get_clock().now().to_msg()
                 marker.header.frame_id = self.frame_id
+                marker.ns = 'radiation_rays'
+                marker.id = marker_id
+                marker_id += 1
                 marker.type = Marker.LINE_STRIP  # Use line strip to represent the ray
                 marker.action = Marker.ADD
                 marker.scale.x = ray_width  # Ray width (fixed value)
@@ -135,9 +135,9 @@ class coris_publisher(Node):
                 marker.color.r = (cps / 255) * 100  # Color based on intesity, make this a little more realistic.
                 # Origin or the Ray
                 start_point = Point()
-                start_point.x = 0  # Sensor is at the origin
-                start_point.y = 0
-                start_point.z = 0
+                start_point.x = 0.0 # Sensor is at the origin
+                start_point.y = 0.0
+                start_point.z = 0.0
                 # End of Ray
                 end_point = Point()
                 end_point.x = x * ray_length
@@ -147,7 +147,7 @@ class coris_publisher(Node):
                 marker.points.append(end_point)
                 marker_array.markers.append(marker)
             # Publish the marker array
-            self.marker_publisher.publish(marker_array)
+        self.marker_publisher.publish(marker_array)
 
 # Main Function
 def main(args=None) -> None:
