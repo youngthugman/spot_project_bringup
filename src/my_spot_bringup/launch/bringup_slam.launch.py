@@ -90,7 +90,7 @@ def generate_launch_description():
     )
 
     coris_node = Node(
-        package='my_spot_coris',
+        package='coris_publisher',
         executable='coris_publisher',
         name='coris_publisher',
         output='screen'

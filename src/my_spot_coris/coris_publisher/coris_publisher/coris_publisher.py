@@ -115,10 +115,10 @@ class coris_publisher(Node):
         marker_id = 0
         for row in range(self.height):
             for col in range(self.width):
-                if ray_data is None:
-                    continue
                 cps = self.pixel_data[row * self.width + col] # extracts value from flattened.
                 ray_data = self.pixel_to_ray(row,col,cps) #convert extracted pixel into 3D.
+                if ray_data is None:
+                    continue
                 x,y,z,ray_width, ray_height, ray_length = ray_data #unpack tuple.
                 # Create Marker for this ray
                 marker = Marker()
