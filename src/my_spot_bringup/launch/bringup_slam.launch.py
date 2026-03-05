@@ -93,7 +93,11 @@ def generate_launch_description():
         package='coris_publisher',
         executable='coris_publisher',
         name='coris_publisher',
-        output='screen'
+        output='screen' ,
+        parameters=[{
+            'csv_path': '/home/max/spot_ws/src/spot_project_bringup/data/Simulation_data_CPS.csv',
+        }],
+
     )
 
 

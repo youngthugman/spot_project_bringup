@@ -15,7 +15,7 @@ class coris_publisher(Node):
     def __init__(self): #object of the class represented as self
         super().__init__('coris_publisher') #initialise the parent inherited node with a name that will set this node name to coris_publisher in the ros2 system (necessary step)
         # Declaring Parameters (config values that can be modified in param file e.g yaml). Same as declaring in innit.
-        simulated_csv = pathlib.Path(get_package_share_directory('coris_publisher')) / 'data' / 'Simulation_data_CPS' #add path later
+        simulated_csv = pathlib.Path(get_package_share_directory('coris_publisher')) / 'data' / 'Simulation_data_CPS.csv' #add path later
         self.declare_parameter('csv_path', str(simulated_csv))
         self.declare_parameter('topic_name', '/radiation') #maybe modify this to be more clear?
         self.declare_parameter('frame_id', 'pixel_sensor_link') # frame identificaiton for timing.
@@ -23,6 +23,7 @@ class coris_publisher(Node):
         self.declare_parameter('height', 8)
         self.declare_parameter('publish_period_s', 5.0) # hz
 #        Fetching Parameter Values That Are Declared Above
+        configured_csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
         self.csv_path = self.get_parameter('csv_path').get_parameter_value().string_value
         self.topic_name = self.get_parameter('topic_name').get_parameter_value().string_value
         
@@ -59,7 +60,7 @@ class coris_publisher(Node):
                     raise ValueError(
                         f'Each CSV row must have {expected_width} columns. Found {len(raw_row)}.'
                     )
-                row_values = [int(cell) for cell in raw_row]
+                row_values = [max(0, min(255, int(float(cell)))) for cell in raw_row]
                 # Append the row of pixel values to the rows list
                 rows.append(row_values)
         # Flattening the 2D list into a 1D list
